@@ -1,0 +1,117 @@
+# Mengambil informasi sistem dan resource
+:local iddate [/system clock get date];
+:local idtime [/system clock get time];
+:local idrouter [/system identity get name];
+:local iduptime [/system resource get uptime];
+:local cpuLoad [/system resource get cpu-load];
+:local totalMemory [/system resource get total-memory];
+:local freeMemory [/system resource get free-memory];
+:local usedMemory ($totalMemory - $freeMemory);
+:local memoryPercentage (100 - (($freeMemory * 100) / $totalMemory));
+
+# Format ulang tanggal
+:local monthNames {"jan"="Januari"; "feb"="Februari"; "mar"="Maret"; "apr"="April"; "may"="Mei"; "jun"="Juni"; "jul"="Juli"; "aug"="Agustus"; "sep"="September"; "oct"="Oktober"; "nov"="November"; "dec"="Desember"};
+:local month [:pick $iddate 0 3];
+:local day [:pick $iddate 4 6];
+:local year [:pick $iddate 7 11];
+:local formattedDate ($day . " " . ($monthNames->$month) . " " . $year);
+
+# Format ulang waktu aktif
+:local formattedUptime "";
+:if ([:len $iduptime] > 0) do={
+    :local days [:pick $iduptime 0 1];
+    :local hours [:pick $iduptime 2 4];
+    :local minutes [:pick $iduptime 5 7];
+    :local seconds [:pick $iduptime 8 10];
+    :if ($days > 0) do={
+        :set formattedUptime ($days . " hari ");
+    }
+    :set formattedUptime ($formattedUptime . $hours . " jam " . $minutes . " menit " . $seconds . " detik");
+}
+
+# Format memory untuk tampilan yang lebih baik (konversi ke MB)
+:local usedMemoryMB ([($usedMemory / 1024 / 1024)]);
+:local totalMemoryMB ([($totalMemory / 1024 / 1024)]);
+
+# Daftar pelanggan
+:local pelangganList "pakno.A1,boo.B1,paijo.C1,paijah.D1";
+:local nohpList "081234567890,081234567890,081234567890,081234567890";
+:local dataUsagePrefixList "pakno,boo,paijo,paijah";
+
+# Konfigurasi API WhatsApp
+:local apikey "pWUfzqqjytJRDX0CllqbAGCuig33cIKb";
+:local sender "6285648811419";
+:local apiUrl "https://kirimwa.apps.classy.id/send-message";
+
+# Hitung jumlah pelanggan
+:local count [:len [:toarray $pelangganList]];
+
+# Loop untuk setiap pelanggan
+:for i from=0 to=($count - 1) do={
+    # Ambil nama pelanggan, nohp, dan prefix
+    :local pelanggan [:pick [:toarray $pelangganList] $i];
+    :local nohp [:pick [:toarray $nohpList] $i];
+    :local prefix [:pick [:toarray $dataUsagePrefixList] $i];
+    
+    # Mendapatkan penggunaan data
+    :local totalUP [/system scheduler get [find name=("D-" . $prefix)] comment];
+    :local totalDOWN [/system scheduler get [find name=("U-" . $prefix)] comment];
+    :local total ($totalUP + $totalDOWN);
+    
+    # Menentukan status berdasarkan penggunaan total
+    :local status;
+    :local statusMessage;
+    :if ($total < 50) do={
+        :set status "Rendah";
+        :set statusMessage "Penggunaan internet Anda masih sangat hemat";
+    } else={
+        :if ($total < 100) do={
+            :set status "Sedang";
+            :set statusMessage "Penggunaan internet Anda sudah mencapai separuh kuota";
+        } else={
+            :if ($total < 150) do={
+                :set status "Tinggi";
+                :set statusMessage "Penggunaan internet Anda sudah cukup tinggi";
+            } else={
+                :set status "Sangat Tinggi";
+                :set statusMessage "Penggunaan internet Anda sudah mendekati batas maksimal";
+            }
+        }
+    }
+    
+    # Menyusun pesan dengan informasi lebih detail
+    :local message "Halo *$pelanggan*,%0A";
+    :set message ($message . "Berikut laporan internet Anda:%0A%0A");
+    
+    :set message ($message . "*Detail Info*%0A");
+    :set message ($message . "Tanggal : $formattedDate%0A");
+    :set message ($message . "Pukul : $idtime%0A");
+    :set message ($message . "Area : $idrouter%0A%0A");
+    
+    :set message ($message . "*Penggunaan Data*%0A");
+    :set message ($message . "Download : *$totalUP GiB*%0A");
+    :set message ($message . "Upload : *$totalDOWN GiB*%0A");
+    :set message ($message . "Total : *$total GiB*%0A%0A");
+    
+    :set message ($message . "*Status Penggunaan : $status*%0A");
+    :set message ($message . "$statusMessage%0A%0A");
+    
+    :set message ($message . "*Kondisi Sistem*%0A");
+    :set message ($message . "Beban CPU : $cpuLoad%%0A");
+    :set message ($message . "Memory : $memoryPercentage%%0A");
+    :set message ($message . "Waktu Aktif : $formattedUptime%0A");
+    
+    :set message ($message . "---------------------%0A");
+    :set message ($message . "_Terima kasih telah menggunakan layanan kami_%0A");
+    
+    # Mengirim pesan WhatsApp
+    /tool fetch mode=http \
+        http-header-field="Content-Type: application/x-www-form-urlencoded; charset=UTF-8, User-Agent: MikroTikFetch" \
+        http-method=post \
+        http-data="api_key=$apikey&sender=$sender&number=$nohp&message=$message" \
+        url=$apiUrl \
+        output=none;
+    
+    # Delay 7 detik antar pengiriman
+    :delay 7s;
+}
